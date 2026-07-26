@@ -1,6 +1,6 @@
 import ctypes
 import os
-import sys
+
 
 
 wintun = ctypes.CDLL(os.path.join(os.getcwd(), "wintun.dll"))
