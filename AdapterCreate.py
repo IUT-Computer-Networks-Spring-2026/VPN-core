@@ -1,41 +1,41 @@
 import ctypes
 import os
+import sys
+
+wintun_dll_path = os.path.join(os.getcwd(), "wintun.dll")
+if not os.path.exists(wintun_dll_path):
+    print(f"wintun.dll not found in {wintun_dll_path}")
+    sys.exit(1)
+
+wintun = ctypes.WinDLL(wintun_dll_path)
 
 
+wintun.WintunCreateAdapter.argtypes = [
+    ctypes.c_wchar_p,   
+    ctypes.c_wchar_p,   
+    ctypes.c_void_p     
+]
+wintun.WintunCreateAdapter.restype = ctypes.c_void_p
 
-wintun = ctypes.CDLL(os.path.join(os.getcwd(), "wintun.dll"))
 
+wintun.WintunCloseAdapter.argtypes = [ctypes.c_void_p]
+wintun.WintunCloseAdapter.restype = None
 
-WINTUN_ADAPTER_TYPE_NAME = "Wintun"
+WINTUN_TUNNEL_TYPE = "Wintun"
 
-def create_adapter(name : str = "vpncore"):
-    
-    guid = None
-    adapter = wintun.WintunCreateAdapter(name, WINTUN_ADAPTER_TYPE_NAME, guid)
-    
+def create_adapter(name: str = "vpncore"):
+    adapter = wintun.WintunCreateAdapter(name, WINTUN_TUNNEL_TYPE, None)
     if not adapter:
-        raise Exception("Can't create Adapter")
-    
-    print(f"Adapter Created : {name}")
+        raise OSError("WintunCreateAdapter failed")
+    print(f"Adapter created: {name}")
     return adapter
 
-
 if __name__ == "__main__":
+    adapter = None
     try:
         adapter = create_adapter()
-        
-        input("Enter to delete Adapter")
-        
-        
-        wintun.WintunDeleteAdapter(adapter)
-        print("End")
-        
-    except Exception as e:
-        print(e)
-
-
-
-
-# netsh interface ip set address "vpncore" static 10.0.0.1 255.255.255.0
-# route add 0.0.0.0 mask 0.0.0.0 10.0.0.1 metric 5
-
+        input("Press Enter to delete adapter...")
+    finally:
+        if adapter:
+            wintun.WintunCloseAdapter(adapter)
+            print("Adapter closed")
