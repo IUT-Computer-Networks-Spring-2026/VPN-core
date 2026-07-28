@@ -1,6 +1,8 @@
 import subprocess
 import json
 
+from typing import Any
+
 from logging_setup import get_logger
 
 log = get_logger("powershell")
