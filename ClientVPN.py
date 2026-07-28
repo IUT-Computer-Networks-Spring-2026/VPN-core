@@ -1,6 +1,6 @@
 from enum import Enum
 
-import Validator
+import validator
 
 class Connection_method(Enum):
     Proxy = 1
@@ -12,7 +12,7 @@ class ClientVPN :
     MAX_PACKET_SIZE = 1500
 
     def __init__(self, ip, port):
-        Validator.validate_host_port(ip,port)
+        validator.validate_host_port(ip,port)
         self.host = ip
         self.port = port
         self.connected = False
