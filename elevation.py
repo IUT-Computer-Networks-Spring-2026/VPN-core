@@ -10,8 +10,6 @@ log = get_logger("elevation")
 
 
 _SE_ERR_ACCESSDENIED = 5
-_SE_ERR_TIMEOUT = 121
-
 
 def is_admin() -> bool:
     try:
