@@ -12,7 +12,7 @@ class ClientVPN :
     MAX_PACKET_SIZE = 1500
 
     def __init__(self, ip, port):
-        Validator.ipaddress(ip,port)
+        Validator.validate_host_port(ip,port)
         self.host = ip
         self.port = port
         self.connected = False
