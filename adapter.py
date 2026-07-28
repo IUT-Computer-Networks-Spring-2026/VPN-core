@@ -192,7 +192,6 @@ class Adapter:
         *,
         dll_path: Optional[str] = None,
     ) -> "Adapter":
-        
         global _wintun, _kernel32, _iphlpapi
         
         if _wintun is not None:
@@ -262,7 +261,7 @@ class Adapter:
             ctypes.POINTER(_NET_LUID),
             ctypes.POINTER(wintypes.DWORD),
         ]
-        _iphlpapi.ConvertInterfaceLuidToIndex.restype = wintypes.DWORD  # NETIO_STATUS
+        _iphlpapi.ConvertInterfaceLuidToIndex.restype = wintypes.DWORD 
         
         _wintun = wintun
         
@@ -282,20 +281,25 @@ class Adapter:
 
         log.info("Creating Wintun adapter name=%r type=%r", name, tunnel_type)
         handle = wintun.WintunCreateAdapter(name, tunnel_type, None)
+        
         if not handle:
+            log.info("error")
             raise _win_error("WintunCreateAdapter failed")
+
 
         adapter = cls(handle, name, owned=True)
         log.info("Adapter created: %s (handle=%s)", name, handle)
 
         
+        return adapter
+
+    @classmethod
+    def enable_adapter(name = "VPNCore"):
         log.info("Enabling NetAdapter %r", name)
         powershell._ps(
             f"$a = Get-NetAdapter -Name '{name}' -ErrorAction Stop; "
             f"if ($a.Status -ne 'Up') {{ Enable-NetAdapter -Name '{name}' -Confirm:$false -ErrorAction Stop }}"
         )
-        return adapter
-
 
     @property
     def handle(self) -> ctypes.c_void_p:
