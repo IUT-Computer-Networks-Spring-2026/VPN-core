@@ -1,19 +1,48 @@
-import routeTraffic
-import subprocess
+
+
+from __future__ import annotations
+
+import argparse
+import signal
+import sys
+import time
+from typing import Optional, Sequence
+
+import config
+from adapter import Adapter
+from elevation import ensure_admin
+from logging_setup import get_logger, setup_logging
+
+from routing import RouteManager
+
+log = get_logger("main")
+
+
+if __name__ == "__main__":
+    ensure_admin()
+    adapterr = Adapter.create()
+    adapterr.wait_until_ready
+    adapterr.enable_adapter()
+    adapterr.start_session()
+    objr = RouteManager()
+    objr.apply()
+    
 
 
 
-subprocess.run(
-    [
-        "powershell",
-        "-Command",
-        'New-NetIPAddress -InterfaceAlias "vpncore" '
-        '-IPAddress "10.10.0.2" '
-        '-PrefixLength 24'
-    ],
-    check=True
-)
 
-routeTraffic.route("vpncore")
-input("Enter to delete route...")
-routeTraffic.delete_route("vpncore")
+
+
+
+
+
+
+
+
+
+    input("Enter to exit")
+
+    objr.revert()
+    adapterr.close
+
+    
