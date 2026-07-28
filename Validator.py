@@ -1,4 +1,5 @@
 import ipaddress
+import sys
 
 def validate_ip(ip: str) -> bool:
     try:
@@ -21,3 +22,7 @@ def validate_host_port(ip: str, port: int) -> bool:
     validate_port(port)
     return True
 
+def check_os() -> bool:
+    if sys.platform != "win32":
+            log.error("This project only supports Windows.")
+            sys.exit(1)

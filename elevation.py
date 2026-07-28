@@ -6,6 +6,7 @@ import subprocess
 import sys
 from logging_setup import get_logger
 
+
 log = get_logger("elevation")
 
 
@@ -21,9 +22,6 @@ def is_admin() -> bool:
 
 def ensure_admin() -> None:
 
-    if sys.platform != "win32":
-        log.error("This project only supports Windows.")
-        sys.exit(1)
 
     if is_admin():
         log.info("Running with administrator privileges.")
