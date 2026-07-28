@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import powershell
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 import config
 from logging_setup import get_logger
@@ -162,16 +162,16 @@ class RouteManager:
 
     def _assign_ip(self) -> None:
         assert self.if_index is not None
-        ip = _quote(self.ip_address)
+        ip = powershell._quote(self.ip_address)
         log.info("Assigning %s/%s to IfIndex=%s", self.ip_address, self.prefix_length, self.if_index)
 
         # Remove any existing IPv4 addresses on this interface so re-runs are clean.
-        _ps(
+        powershell._ps(
             f"$addrs = Get-NetIPAddress -InterfaceIndex {self.if_index} "
             f"-AddressFamily IPv4 -ErrorAction SilentlyContinue; "
             f"if ($addrs) {{ $addrs | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }}"
         )
-        _ps(
+        powershell._ps(
             f"New-NetIPAddress -InterfaceIndex {self.if_index} "
             f"-IPAddress '{ip}' "
             f"-PrefixLength {self.prefix_length} "
@@ -183,21 +183,21 @@ class RouteManager:
     def _set_interface_metric(self) -> None:
         assert self.if_index is not None
         log.info("Setting InterfaceMetric=%s on IfIndex=%s", self.interface_metric, self.if_index)
-        _ps(
+        powershell._ps(
             f"Set-NetIPInterface -InterfaceIndex {self.if_index} "
             f"-AddressFamily IPv4 "
             f"-AutomaticMetric Disabled "
             f"-InterfaceMetric {self.interface_metric} "
             f"-ErrorAction Stop"
         )
-        # Disable weak-host / promote strong routing behaviour is left at defaults.
 
+        
     def _install_high_priority_routes(self) -> None:
         assert self.if_index is not None
-        hop = _quote(self.virtual_gateway)
+        hop = powershell._quote(self.virtual_gateway)
 
         for prefix in self.prefixes:
-            pfx = _quote(prefix)
+            pfx = powershell._quote(prefix)
             log.info(
                 "Installing route %s via %s ifIndex=%s metric=%s",
                 prefix,
@@ -205,14 +205,14 @@ class RouteManager:
                 self.if_index,
                 self.route_metric,
             )
-            # Remove any stale copy first.
-            _ps(
+
+            powershell._ps(
                 f"$r = Get-NetRoute -InterfaceIndex {self.if_index} "
                 f"-DestinationPrefix '{pfx}' -AddressFamily IPv4 "
                 f"-ErrorAction SilentlyContinue; "
                 f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}"
             )
-            _ps(
+            powershell._ps(
                 f"New-NetRoute -DestinationPrefix '{pfx}' "
                 f"-InterfaceIndex {self.if_index} "
                 f"-NextHop '{hop}' "
@@ -224,19 +224,15 @@ class RouteManager:
             self._routes_installed.append(prefix)
 
     def _protect_host(self, host: str) -> None:
-        """
-        Pin a /32 host route to the real physical gateway so traffic to that
-        host (e.g. your VPN server) never enters the virtual adapter.
-        """
         if not self.real_gateway:
             log.warning("Cannot protect host %s — no real default gateway known.", host)
             return
 
-        host_q = _quote(host)
-        hop_q = _quote(self.real_gateway.next_hop)
+        host_q = powershell._quote(host)
+        hop_q = powershell._quote(self.real_gateway.next_hop)
         idx = self.real_gateway.if_index
         prefix = f"{host}/32"
-        pfx_q = _quote(prefix)
+        pfx_q = powershell._quote(prefix)
 
         log.info(
             "Protecting host %s via real gateway %s (ifIndex=%s)",
@@ -244,12 +240,12 @@ class RouteManager:
             self.real_gateway.next_hop,
             idx,
         )
-        _ps(
+        powershell._ps(
             f"$r = Get-NetRoute -DestinationPrefix '{pfx_q}' -AddressFamily IPv4 "
             f"-ErrorAction SilentlyContinue; "
             f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}"
         )
-        _ps(
+        powershell._ps(
             f"New-NetRoute -DestinationPrefix '{pfx_q}' "
             f"-InterfaceIndex {idx} "
             f"-NextHop '{hop_q}' "
@@ -264,10 +260,10 @@ class RouteManager:
         if self.if_index is None:
             return
         for prefix in list(self._routes_installed) or list(self.prefixes):
-            pfx = _quote(prefix)
+            pfx = powershell._quote(prefix)
             log.info("Removing route %s from IfIndex=%s", prefix, self.if_index)
             try:
-                _ps(
+                powershell._ps(
                     f"$r = Get-NetRoute -InterfaceIndex {self.if_index} "
                     f"-DestinationPrefix '{pfx}' -AddressFamily IPv4 "
                     f"-ErrorAction SilentlyContinue; "
@@ -280,10 +276,10 @@ class RouteManager:
 
     def _remove_protected_hosts(self) -> None:
         for host in list(self._protected_hosts):
-            pfx = _quote(f"{host}/32")
+            pfx = powershell._quote(f"{host}/32")
             log.info("Removing protected host route %s/32", host)
             try:
-                _ps(
+                powershell._ps(
                     f"$r = Get-NetRoute -DestinationPrefix '{pfx}' -AddressFamily IPv4 "
                     f"-ErrorAction SilentlyContinue; "
                     f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}",
@@ -296,10 +292,10 @@ class RouteManager:
     def _remove_ip(self) -> None:
         if self.if_index is None:
             return
-        ip = _quote(self.ip_address)
+        ip = powershell._quote(self.ip_address)
         log.info("Removing IP %s from IfIndex=%s", self.ip_address, self.if_index)
         try:
-            _ps(
+            powershell._ps(
                 f"$a = Get-NetIPAddress -InterfaceIndex {self.if_index} "
                 f"-IPAddress '{ip}' -AddressFamily IPv4 -ErrorAction SilentlyContinue; "
                 f"if ($a) {{ $a | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }}",
