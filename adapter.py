@@ -8,6 +8,7 @@ from typing import Optional
 
 import config
 from logging_setup import get_logger
+import powershell
 
 log = get_logger("Adapter")
 
@@ -286,6 +287,13 @@ class Adapter:
 
         adapter = cls(handle, name, owned=True)
         log.info("Adapter created: %s (handle=%s)", name, handle)
+
+        
+        log.info("Enabling NetAdapter %r", name)
+        powershell._ps(
+            f"$a = Get-NetAdapter -Name '{name}' -ErrorAction Stop; "
+            f"if ($a.Status -ne 'Up') {{ Enable-NetAdapter -Name '{name}' -Confirm:$false -ErrorAction Stop }}"
+        )
         return adapter
 
 
