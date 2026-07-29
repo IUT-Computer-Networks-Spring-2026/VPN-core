@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import powershell
 from dataclasses import dataclass, field
 from typing import Optional
@@ -150,11 +152,15 @@ class RouteManager:
         # Make sure the adapter is up before assigning an address.
         self._enable_adapter()
 
-        # Remove any existing IPv4 addresses on this interface so re-runs are clean.
+        # Remove any existing IPv4 addresses on this interface so re-runs are
+        # clean. This is best-effort: a fresh adapter has none, and the query
+        # cmdlet returns a non-zero exit code when nothing is found even with
+        # -ErrorAction SilentlyContinue, so we must not treat that as fatal.
         powershell._ps(
             f"$addrs = Get-NetIPAddress -InterfaceIndex {idx} "
             f"-AddressFamily IPv4 -ErrorAction SilentlyContinue; "
-            f"if ($addrs) {{ $addrs | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }}"
+            f"if ($addrs) {{ $addrs | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }}",
+            check=False,
         )
         powershell._ps(
             f"New-NetIPAddress -InterfaceIndex {idx} "
@@ -178,11 +184,23 @@ class RouteManager:
             log.warning("Cannot resolve adapter %r to list IPs: %s", self.adapter_name, exc)
             return []
 
-        data = powershell._ps_json(
-            f"Get-NetIPAddress -InterfaceIndex {idx} -AddressFamily IPv4 "
+        # -ErrorAction SilentlyContinue keeps the cmdlet quiet, and check=False
+        # tolerates the non-zero exit code returned when the interface has no
+        # IPv4 address yet. The wrapping array guarantees ConvertTo-Json emits
+        # a JSON list even for a single address.
+        raw = powershell._ps(
+            f"@(Get-NetIPAddress -InterfaceIndex {idx} -AddressFamily IPv4 "
             f"-ErrorAction SilentlyContinue | "
-            f"Select-Object -ExpandProperty IPAddress | ConvertTo-Json -Compress"
+            f"Select-Object -ExpandProperty IPAddress) | ConvertTo-Json -Compress",
+            check=False,
         )
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            log.warning("Could not parse IP list from PowerShell: %r", raw)
+            return []
         if not data:
             return []
         # ConvertTo-Json yields a scalar for a single address, a list otherwise.
@@ -373,7 +391,8 @@ class RouteManager:
                 f"$r = Get-NetRoute -InterfaceIndex {self.if_index} "
                 f"-DestinationPrefix '{pfx}' -AddressFamily IPv4 "
                 f"-ErrorAction SilentlyContinue; "
-                f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}"
+                f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}",
+                check=False,
             )
             powershell._ps(
                 f"New-NetRoute -DestinationPrefix '{pfx}' "
@@ -406,7 +425,8 @@ class RouteManager:
         powershell._ps(
             f"$r = Get-NetRoute -DestinationPrefix '{pfx_q}' -AddressFamily IPv4 "
             f"-ErrorAction SilentlyContinue; "
-            f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}"
+            f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}",
+            check=False,
         )
         powershell._ps(
             f"New-NetRoute -DestinationPrefix '{pfx_q}' "
