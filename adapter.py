@@ -39,7 +39,7 @@ _iphlpapi: Optional[ctypes.WinDLL] = None
 
 
 def _check_capacity(capacity: int) -> None:
-    if capacity > _WINTUN_MIN_RING_CAPACITY and capacity < _WINTUN_MAX_RING_CAPACITY:
+    if capacity < _WINTUN_MIN_RING_CAPACITY or capacity > _WINTUN_MAX_RING_CAPACITY:
         raise ValueError(
             f"SESSION_CAPACITY {capacity:#x} out of range "
             f"[{_WINTUN_MIN_RING_CAPACITY:#x}, {_WINTUN_MAX_RING_CAPACITY:#x}]"
@@ -58,7 +58,7 @@ def _win_error(prefix: str = "Wintun call failed") -> OSError:
 
 
 def _load_dlls(dll_path: Optional[str] = None) -> ctypes.WinDLL:
-    
+
     global _wintun, _kernel32, _iphlpapi
 
     if _wintun is not None:
@@ -69,13 +69,13 @@ def _load_dlls(dll_path: Optional[str] = None) -> ctypes.WinDLL:
         raise FileNotFoundError(f"wintun.dll not found at '{path}'. ")
 
     log.info("Loading wintun.dll from %s", path)
-    
+
     wintun = ctypes.WinDLL(path, use_last_error=True)
 
-    
+
     wintun.WintunCreateAdapter.argtypes = [
-        wintypes.LPCWSTR,   
-        wintypes.LPCWSTR,   
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
         ctypes.c_void_p,
     ]
     wintun.WintunCreateAdapter.restype = _WINTUN_ADAPTER_HANDLE
@@ -154,7 +154,7 @@ def _dll() -> ctypes.WinDLL:
 
 
 def _luid_to_index(luid: _NET_LUID) -> int:
-    
+
     if _iphlpapi is None:
         _load_dlls()
     assert _iphlpapi is not None
@@ -174,7 +174,7 @@ class Adapter:
     def __init__(
         self,
         handle: ctypes.c_void_p,
-        name: str, 
+        name: str,
     ) -> None:
         self._handle = handle
         self.name = name
@@ -183,7 +183,7 @@ class Adapter:
         self._read_event: Optional[int] = None
         self._closed = False
 
-    
+
     @classmethod
     def create(
         cls,
@@ -192,110 +192,26 @@ class Adapter:
         *,
         dll_path: Optional[str] = None,
     ) -> "Adapter":
-        global _wintun, _kernel32, _iphlpapi
-        
-        if _wintun is not None:
-            return _wintun
-        
-        path = dll_path or config.WINTUN_DLL_PATH
-        if not os.path.isfile(path):
-            raise FileNotFoundError(
-                f"wintun.dll not found at '{path}'. "
-            )
-        
-        log.info("Loading wintun.dll from %s", path)
-        
-        wintun = ctypes.WinDLL(path, use_last_error=True)
-        
-        
-        wintun.WintunCreateAdapter.argtypes = [
-            wintypes.LPCWSTR,   
-            wintypes.LPCWSTR,  
-            ctypes.c_void_p,    
-        ]
-        wintun.WintunCreateAdapter.restype = _WINTUN_ADAPTER_HANDLE
-        
-        wintun.WintunOpenAdapter.argtypes = [wintypes.LPCWSTR]
-        wintun.WintunOpenAdapter.restype = _WINTUN_ADAPTER_HANDLE
-        wintun.WintunCloseAdapter.argtypes = [_WINTUN_ADAPTER_HANDLE]
-        wintun.WintunCloseAdapter.restype = None
-        
-        wintun.WintunGetAdapterLUID.argtypes = [
-            _WINTUN_ADAPTER_HANDLE,
-            ctypes.POINTER(_NET_LUID),
-        ]
-        wintun.WintunGetAdapterLUID.restype = None
-        
-        wintun.WintunGetRunningDriverVersion.argtypes = []
-        wintun.WintunGetRunningDriverVersion.restype = wintypes.DWORD
-        
-        wintun.WintunStartSession.argtypes = [_WINTUN_ADAPTER_HANDLE, wintypes.DWORD]
-        wintun.WintunStartSession.restype = _WINTUN_SESSION_HANDLE
-        
-        wintun.WintunEndSession.argtypes = [_WINTUN_SESSION_HANDLE]
-        wintun.WintunEndSession.restype = None
-        
-        wintun.WintunGetReadWaitEvent.argtypes = [_WINTUN_SESSION_HANDLE]
-        wintun.WintunGetReadWaitEvent.restype = wintypes.HANDLE
-        
-        
-        wintun.WintunReceivePacket.argtypes = [
-            _WINTUN_SESSION_HANDLE,
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        wintun.WintunReceivePacket.restype = _PBYTE
-        wintun.WintunReleaseReceivePacket.argtypes = [_WINTUN_SESSION_HANDLE, _PBYTE]
-        wintun.WintunReleaseReceivePacket.restype = None
-        
-        wintun.WintunAllocateSendPacket.argtypes = [_WINTUN_SESSION_HANDLE, wintypes.DWORD]
-        wintun.WintunAllocateSendPacket.restype = _PBYTE
-        
-        wintun.WintunSendPacket.argtypes = [_WINTUN_SESSION_HANDLE, _PBYTE]
-        wintun.WintunSendPacket.restype = None
-        
-        _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        _kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        _kernel32.WaitForSingleObject.restype = wintypes.DWORD
-        _iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
-        _iphlpapi.ConvertInterfaceLuidToIndex.argtypes = [
-            ctypes.POINTER(_NET_LUID),
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        _iphlpapi.ConvertInterfaceLuidToIndex.restype = wintypes.DWORD 
-        
-        _wintun = wintun
-        
-        version = wintun.WintunGetRunningDriverVersion()
-        if version:
-            log.info(
-                "Wintun driver version %d.%d",
-                (version >> 16) & 0xFFFF,
-                version & 0xFFFF,
-            )
-        else:
-            log.debug("Wintun driver not yet loaded (will load on first adapter create).")
+        # Load (or reuse) wintun.dll and configure the function prototypes.
+        wintun = _load_dlls(dll_path)
 
-        
         name = name or config.ADAPTER_NAME
         tunnel_type = tunnel_type or config.TUNNEL_TYPE
 
         log.info("Creating Wintun adapter name=%r type=%r", name, tunnel_type)
         handle = wintun.WintunCreateAdapter(name, tunnel_type, None)
-        
+
         if not handle:
-            log.info("error")
             raise _win_error("WintunCreateAdapter failed")
 
-
-        adapter = cls(handle, name, owned=True)
+        adapter = cls(handle, name)
         log.info("Adapter created: %s (handle=%s)", name, handle)
 
-        
         return adapter
 
-    @classmethod
-    def enable_adapter(name = "VPNCore"):
-        log.info("Enabling NetAdapter %r", name)
+    def enable_adapter(self) -> None:
+        name = powershell._quote(self.name)
+        log.info("Enabling NetAdapter %r", self.name)
         powershell._ps(
             f"$a = Get-NetAdapter -Name '{name}' -ErrorAction Stop; "
             f"if ($a.Status -ne 'Up') {{ Enable-NetAdapter -Name '{name}' -Confirm:$false -ErrorAction Stop }}"
@@ -329,7 +245,7 @@ class Adapter:
         attempts: Optional[int] = None,
         delay: Optional[float] = None,
     ) -> int:
-        
+
         attempts = attempts if attempts is not None else config.ADAPTER_READY_ATTEMPTS
         delay = delay if delay is not None else config.ADAPTER_READY_DELAY_SEC
 
@@ -360,7 +276,7 @@ class Adapter:
             f"{attempts * delay:.1f}s"
         ) from last_exc
 
-    
+
     def start_session(self, capacity: Optional[int] = None) -> None:
         if self._session:
             log.warning("Session already started; ignoring start_session().")
@@ -391,7 +307,7 @@ class Adapter:
             self._session = None
             self._read_event = None
 
-    
+
     def receive_packet(self, timeout_ms: Optional[int] = None) -> Optional[bytes]:
         wintun = _dll()
         session = self.session
@@ -458,9 +374,9 @@ class Adapter:
         log.warning("WaitForSingleObject returned unexpected code %s", result)
         return False
 
-    
+
     def close(self) -> None:
-        
+
         if self._closed:
             return
         self._closed = True
@@ -494,4 +410,3 @@ class Adapter:
 
 
 WintunAdapter = Adapter
-
