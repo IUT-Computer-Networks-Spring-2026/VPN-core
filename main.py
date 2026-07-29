@@ -13,11 +13,6 @@ log = get_logger("main")
 
 
 def _pause(message: str) -> None:
-    """Pause the flow so the current state can be inspected externally.
-
-    Falls back to a timed sleep when no interactive console is available
-    (e.g. when launched via a fresh elevated process).
-    """
     log.info(message)
     try:
         input(f"\n>>> {message}\n>>> Press ENTER to continue...\n")
@@ -27,7 +22,6 @@ def _pause(message: str) -> None:
 
 
 def main() -> None:
-    # 0) Sanity: this project is Windows-only and needs admin rights.
     check_os()
     ensure_admin()
 
@@ -35,17 +29,19 @@ def main() -> None:
     router = RouteManager()
 
     try:
-        # 1) Bring up / create the virtual network adapter.
         adapter = Adapter.create()
+        _pause("Adapter created")
         if_index = adapter.wait_until_ready()
+        _pause("Adapter is ready")
         adapter.enable_adapter()
+        _pause("Adapter enabled")
         adapter.start_session()
+        _pause("Session started. assigning ip...")
         log.info("Adapter %r is up (IfIndex=%s)", adapter.name, if_index)
 
-        # 2) Assign an IP address to it (IP is optional -> taken from config).
         router.assign_ip(if_index=if_index)
-
-        # 3) Pause so the IP assignment can be verified manually.
+        _pause("ip assigned")
+        
         if router.has_ip(if_index=if_index):
             log.info(
                 "Verified: %s is assigned to %r. "
@@ -59,14 +55,12 @@ def main() -> None:
 
         _pause("IP assigned. Verify it, then continue to activate tunnel mode.")
 
-        # 4) Activate tunnel mode (high-priority routing).
         router.create_tunnel(if_index=if_index)
 
-        # 5) Let external tools inspect the redirected packets.
+        
         _pause("Tunnel active. Inspect packets with an external tool, then continue.")
 
     finally:
-        # 6) Clean up: remove routes + IP, then delete the adapter.
         try:
             router.revert()
         except Exception as exc:
