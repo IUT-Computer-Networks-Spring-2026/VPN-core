@@ -24,5 +24,6 @@ def validate_host_port(ip: str, port: int) -> bool:
 
 def check_os() -> bool:
     if sys.platform != "win32":
-            log.error("This project only supports Windows.")
-            sys.exit(1)
+        print("This project only supports Windows.", file=sys.stderr)
+        sys.exit(1)
+    return True
