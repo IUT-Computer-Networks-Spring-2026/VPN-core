@@ -26,23 +26,7 @@ if __name__ == "__main__":
     adapterr.start_session()
     objr = RouteManager()
     objr.apply()
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-    input("Enter to exit")
-
     objr.revert()
-    adapterr.close
+    adapterr.close()
 
     
