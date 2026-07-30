@@ -5,7 +5,7 @@ import time
 import config
 from adapter import Adapter
 from elevation import ensure_admin
-from logging_setup import get_logger
+from Client.logger import get_logger
 from routing import RouteManager
 from validator import check_os
 

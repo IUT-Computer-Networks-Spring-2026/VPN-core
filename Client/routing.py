@@ -8,7 +8,7 @@ from typing import Optional
 
 import config
 import validator
-from logging_setup import get_logger
+from Client.logger import get_logger
 
 log = get_logger("routing")
 

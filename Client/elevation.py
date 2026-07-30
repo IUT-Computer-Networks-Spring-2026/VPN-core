@@ -4,7 +4,7 @@ import ctypes
 import os
 import subprocess
 import sys
-from logging_setup import get_logger
+from Client.logger import get_logger
 
 
 log = get_logger("elevation")
