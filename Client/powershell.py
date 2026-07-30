@@ -3,7 +3,7 @@ import json
 
 from typing import Any
 
-from Client.logger import get_logger
+from logger import get_logger
 
 log = get_logger("powershell")
 

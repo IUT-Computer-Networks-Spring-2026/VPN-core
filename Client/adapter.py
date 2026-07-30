@@ -7,7 +7,7 @@ from ctypes import wintypes
 from typing import Optional
 
 import config
-from Client.logger import get_logger
+from logger import get_logger
 import powershell
 
 log = get_logger("Adapter")
