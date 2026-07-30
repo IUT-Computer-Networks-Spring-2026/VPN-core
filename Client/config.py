@@ -81,3 +81,31 @@ ADAPTER_READY_DELAY_SEC: float = 0.25
 # Logging
 LOG_LEVEL: str = os.environ.get("VPNCORE_LOG_LEVEL", "INFO")
 LOG_TO_CONSOLE: bool = True
+
+# ---------------------------------------------------------------------------
+# Remote VPN server (placeholder / hypothetical for now)
+# ---------------------------------------------------------------------------
+# The client forwards traffic to this endpoint over TCP. The IP is a
+# configurable placeholder; point it at the real server when available.
+SERVER_IP: str = os.environ.get("VPNCORE_SERVER_IP", "127.0.0.1")
+SERVER_PORT: int = int(os.environ.get("VPNCORE_SERVER_PORT", "9000"))
+
+# Seconds to wait when establishing the TCP connection to the server.
+SERVER_CONNECT_TIMEOUT: float = float(os.environ.get("VPNCORE_SERVER_TIMEOUT", "10"))
+
+# ---------------------------------------------------------------------------
+# Proxy mode
+# ---------------------------------------------------------------------------
+# Local listener for proxy mode. Bound to loopback so only local apps can
+# reach it; every accepted connection is relayed to (SERVER_IP, SERVER_PORT).
+PROXY_LISTEN_HOST: str = os.environ.get("VPNCORE_PROXY_HOST", "127.0.0.1")
+PROXY_LISTEN_PORT: int = int(os.environ.get("VPNCORE_PROXY_PORT", "2018"))
+
+# Backlog for the proxy listener socket.
+PROXY_BACKLOG: int = 128
+
+# ---------------------------------------------------------------------------
+# Socket / forwarding
+# ---------------------------------------------------------------------------
+# Chunk size used when relaying bytes between sockets / the adapter.
+SOCKET_BUFFER_SIZE: int = 65535
