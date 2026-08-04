@@ -2,3 +2,7 @@ vpncore.log
 /__pycache__
 /Client/__pycache__
 /Server/__pycache__
+/common/__pycache__
+LoadBalancer/__pycache__/load_balancer.cpython-313.pyc
+/ClientPortal/__pycache__
+/AdminDashboard/__pycache__
