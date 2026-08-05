@@ -1,6 +1,3 @@
 
 
-# server list :
-Servers = list()
-
-
+LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004}
