@@ -2,6 +2,7 @@ import ctypes
 import json
 import os
 import subprocess
+import sys
 import time
 from ctypes import wintypes
 from typing import Optional
@@ -336,10 +337,44 @@ class Tunnel:
         )
         self._server_bypass = None
 
+    # check whether the current process is running as administrator
+    def _is_admin(self):
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False  # if the check fails, assume we are not elevated
+
+    # request and handle administrator privileges (elevate PowerShell via UAC)
+    def _ensure_admin(self):
+        if self._is_admin():
+            print("Administrator privileges confirmed")
+            return True
+
+        # not elevated
+        print("Not elevated — requesting administrator privileges via PowerShell")
+        params = " ".join(f'"{arg}"' for arg in sys.argv)
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             f"Start-Process -FilePath '{sys.executable}' "
+             f"-ArgumentList '{params}' -Verb RunAs"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise TunnelError(
+                f"Administrator elevation failed: "
+                f"{result.stderr.strip() or 'user declined the UAC prompt'}"
+            )
+
+        # stop this non-elevated one
+        sys.exit(0)
+
    # public APIs
     def create(self, adapter_name: Optional[str] = None, adapter_address: Optional[str] = None):
         if self.is_tunnel_active:
             raise TunnelError("Tunnel is already active")
+
+        # creating an adapter and editing routes needs administrator rights
+        self._ensure_admin()
 
         self.adapter_name = adapter_name or self.DEFAULT_ADAPTER_NAME
         self.adapter_address = adapter_address or self.DEFAULT_ADAPTER_ADDRESS
