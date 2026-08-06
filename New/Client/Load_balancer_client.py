@@ -3,13 +3,13 @@ import socket
 
 LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004} # don't touch this line except for change in 2 client and server
 
-class load_balancer_server():  
+class load_balancer_client():  
     def __init__ (self):
         pass
 
     def ask(ip = LOAD_BALANCER["IP"],port = LOAD_BALANCER["PORT"]):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((LOAD_BALANCER["IP"],LOAD_BALANCER["PORT"]))
+        client_socket.connect((ip, port))
         for i in range(3):
             client_socket.send("GET".encode('utf-8'))
             client_socket.settimeout(5.0) 
@@ -23,21 +23,9 @@ class load_balancer_server():
                     break
             except socket.timeout:
                 client_socket.close()
-                print("⏰ Client Timeout")
+                print("Client Timeout")
                 continue
 
         return json.loads(response.decode('utf-8'))
 
 
-
-# test 
-def main():
-    load = load_balancer_server()
-    server_info = load.ask()
-    if server_info:
-        print(f"server ip & port : {server_info}")
-    else :
-        print(";(")
-
-if __name__ == "__main__":
-    main()

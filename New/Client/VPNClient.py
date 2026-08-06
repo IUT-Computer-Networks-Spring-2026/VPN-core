@@ -1,4 +1,4 @@
-from Load_balancer_client import load_balancer_server
+from Load_balancer_client import load_balancer_client
 from Tunnel import Tunnel
 
 
@@ -11,7 +11,7 @@ class VPN_Client:
         self.get_server_info : bool = False
 
     def get_ip_address(self):
-        load = load_balancer_server()
+        load = load_balancer_client()
         server_info = load.ask()
         if server_info:
             server_ip, server_port = server_info
