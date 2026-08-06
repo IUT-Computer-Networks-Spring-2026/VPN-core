@@ -1,6 +1,7 @@
 import random
 import socket
 import json
+from Crypto import Cesar
 
 LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004} # don't touch this line except for change in 2 client and server
 
@@ -24,13 +25,13 @@ class load_balancer_server():
                 if not data:
                     continue
             except socket.timeout:
-                print("⏰ Client Timeout")
+                print("Client Timeout")
                 continue
 
-            msg = data.decode('utf-8') 
+            msg = Cesar.decode(data).decode('utf-8') 
             if msg.upper() == "GET" : 
                 json_string = json.dumps(random.choice(self.server_list)) 
-                client_socket.send(json_string.encode('utf-8')) 
+                client_socket.send(Cesar.encode(json_string.encode('utf-8'))) 
             else : 
                 print(f"wrong message: {msg}")
             client_socket.close() 

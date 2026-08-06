@@ -1,5 +1,6 @@
 import json
 import socket
+from Crypto import Cesar
 
 LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004} # don't touch this line except for change in 2 client and server
 
@@ -11,7 +12,7 @@ class load_balancer_client():
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((ip, port))
         for i in range(3):
-            client_socket.send("GET".encode('utf-8'))
+            client_socket.send(Cesar.encode("GET".encode('utf-8')))
             client_socket.settimeout(5.0) 
 
             try:
@@ -26,6 +27,6 @@ class load_balancer_client():
                 print("Client Timeout")
                 continue
 
-        return json.loads(response.decode('utf-8'))
+        return json.loads(Cesar.decode(response).decode('utf-8'))
 
 
