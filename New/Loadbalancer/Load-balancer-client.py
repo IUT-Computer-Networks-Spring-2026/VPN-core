@@ -1,7 +1,7 @@
 import json
-from Config import LOAD_BALANCER
 import socket
 
+LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004} # don't touch this line except for change in 2 client and server
 
 class load_balancer_server():  
     def __init__ (self):

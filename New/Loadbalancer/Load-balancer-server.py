@@ -1,9 +1,8 @@
 import random
 import socket
-from Config import LOAD_BALANCER
 import json
 
-
+LOAD_BALANCER = {"IP" : "127.0.0.1" , "PORT" : 12004} # don't touch this line except for change in 2 client and server
 
 class load_balancer_server():
     server_list = [("127.0.0.1",12001),("127.0.0.2",13002),("127.0.0.6",12004)]
