@@ -48,10 +48,4 @@ class VPN_Client:
         # Code to disconnect from the VPN server
         pass
 
-    def send(self, data):
-        # Code to send data through the VPN tunnel
-        pass
-
-    def receive(self):
-        # Code to receive data from the VPN tunnel
-        pass
+    
