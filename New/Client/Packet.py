@@ -12,6 +12,11 @@ class IPPacket:
 
     _PROTO_NAMES = {ICMP: "ICMP", TCP: "TCP", UDP: "UDP"}
 
+    _ICMP_ECHO_REPLY = 0
+    _ICMP_ECHO_REQUEST = 8
+    _ICMP_ECHO_TYPES = (_ICMP_ECHO_REPLY, _ICMP_ECHO_REQUEST)
+
+
 
     def __init__(self, raw: bytes):
         if raw is None or len(raw) < 20:
@@ -45,6 +50,20 @@ class IPPacket:
 
     def get_destination(self):
         return (self._read_ip(16), self._read_port(self._l4 + 2))
+
+    def get_icmp_id(self):
+        if not self._is_icmp_echo():
+            return None
+        return struct.unpack_from("!H", self._buf, self._l4 + 4)[0]
+
+    def set_icmp_id(self, identifier):
+        if not self._is_icmp_echo():
+            return
+        if not 0 <= identifier <= 0xFFFF:
+            raise ValueError(f"ICMP identifier out of range 0-65535: {identifier}")
+        struct.pack_into("!H", self._buf, self._l4 + 4, identifier)
+        self._recalc_icmp_checksum()
+        self._recalc_ip_checksum()
 
     def set_source(self, source: tuple):
         ip, port = source
@@ -135,26 +154,33 @@ class IPPacket:
         struct.pack_into("!H", self._buf, 10, csum)
 
     def _pseudo_header(self, l4_len: int):
-        # ip layer for checksum in TCP/UDP
-        return (bytes(self._buf[12:16]) + bytes(self._buf[16:20]) + bytes([self._protocol]) + struct.pack("!H", l4_len) + b"\x00")
+        return (bytes(self._buf[12:16]) + bytes(self._buf[16:20]) + b"\x00" + bytes([self._protocol]) + struct.pack("!H", l4_len))
 
     def _recalc_l4_checksum(self) -> None:
-        if self._protocol == self.UDP and csum == 0:
-            csum = 0xFFFF
-            struct.pack_into("!H", self._buf, csum_off, csum)
-            return 
-        
-        segment = self._buf[self._l4:]
         csum_off = self._l4 + (16 if self._protocol == self.TCP else 6)
 
         struct.pack_into("!H", self._buf, csum_off, 0)
         segment = bytes(self._buf[self._l4:])
         csum = self._checksum(self._pseudo_header(len(segment)) + segment)
 
+        # UDP checksum of 0
+        if self._protocol == self.UDP and csum == 0:
+            csum = 0xFFFF
 
         struct.pack_into("!H", self._buf, csum_off, csum)
 
     
+    def _is_icmp_echo(self):
+        if self._protocol != self.ICMP or len(self._buf) < self._l4 + 8:
+            return False
+        return self._buf[self._l4] in self._ICMP_ECHO_TYPES
+
+    def _recalc_icmp_checksum(self):
+        csum_off = self._l4 + 2
+        struct.pack_into("!H", self._buf, csum_off, 0)
+        message = bytes(self._buf[self._l4:])
+        struct.pack_into("!H", self._buf, csum_off, self._checksum(message))
+
     def _payload_offset(self):
         if self._protocol == self.TCP:
             data_offset = (self._buf[self._l4 + 12] >> 4) * 4
