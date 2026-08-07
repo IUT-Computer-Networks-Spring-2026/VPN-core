@@ -20,18 +20,26 @@ CODE_QUOTA_RESPONSE = 6
 CODE_DISCONNECT = 7
 CODE_STATUS = 8
 CODE_ERROR = 9
+CODE_GET_IP = 10
+CODE_ASSIGN_IP = 11
+CODE_GET_NEW_IP = 12
+
+MAX_CODE = 12
+
 
 _CODE_NAMES = {
     CODE_DATA: "DATA", CODE_KEEP_ALIVE: "KEEP_ALIVE", CODE_AUTH_REQUEST: "AUTH_REQUEST",
     CODE_AUTH_SUCCESS: "AUTH_SUCCESS", CODE_AUTH_FAILED: "AUTH_FAILED",
     CODE_QUOTA_REQUEST: "QUOTA_REQUEST", CODE_QUOTA_RESPONSE: "QUOTA_RESPONSE",
     CODE_DISCONNECT: "DISCONNECT", CODE_STATUS: "STATUS", CODE_ERROR: "ERROR",
+    CODE_GET_IP: "GET_IP", CODE_ASSIGN_IP: "ASSIGN_IP", CODE_GET_NEW_IP: "GET_NEW_IP",
 }
 
 # allowed to recv
 _SERVER_RECEIVABLE = frozenset({
     CODE_DATA, CODE_KEEP_ALIVE, CODE_AUTH_REQUEST, CODE_QUOTA_REQUEST,
     CODE_DISCONNECT, CODE_STATUS, CODE_ERROR,
+    CODE_GET_IP,
 })
 
 
@@ -78,6 +86,14 @@ class ServerVPNPacket:
     def build_error(self, session_id: int) -> bytes:
         return _build_packet(CODE_ERROR, session_id, b"", False)
 
+    def build_assign_ip(self, session_id: int, ip: str):
+        if not isinstance(ip, str) or not ip:
+            raise ValueError("ip must be a non-empty string")
+        return _build_packet(CODE_ASSIGN_IP, session_id, ip.encode("utf-8"), False)
+
+    def build_get_new_ip(self, session_id: int):
+        return _build_packet(CODE_GET_NEW_IP, session_id, b"", False)
+
     def parse(self, data: bytes) -> ParsedPacket:
         code, session_id, mtu_flag, payload = _parse_header_and_payload(data)
 
@@ -96,15 +112,15 @@ class ServerVPNPacket:
             if len(payload) != 4:
                 raise InvalidVPNPacketError("QUOTA_REQUEST payload must be exactly 4 bytes")
             pkt.requested_bytes = struct.unpack("!I", payload)[0]
-        elif code in (CODE_KEEP_ALIVE, CODE_DISCONNECT, CODE_ERROR):
+        elif code in (CODE_KEEP_ALIVE, CODE_DISCONNECT, CODE_ERROR, CODE_GET_IP):
             if payload:
                 raise InvalidVPNPacketError(f"{_CODE_NAMES[code]} must have no payload")
         return pkt
 
 
 def _build_packet(code: int, session_id: int, payload: bytes, mtu_flag: bool):
-    if not 0 <= code <= 9:
-        raise ValueError(f"code out of range 0-9: {code}")
+    if not 0 <= code <= MAX_CODE:
+        raise ValueError(f"code out of range 0-{MAX_CODE}: {code}")
     if not 0 <= session_id <= 7:
         raise ValueError(f"session_id out of range 0-7: {session_id}")
     if payload is None:
@@ -130,7 +146,7 @@ def _parse_header_and_payload(data: bytes):
     session_id = (byte2 >> 1) & 0x07
     mtu_flag = bool(byte2 & 0x01)
 
-    if code > 9:
+    if code > MAX_CODE:
         raise InvalidVPNPacketError(f"unknown code {code}")
 
     expected_total = HEADER_LEN + payload_len
