@@ -2,30 +2,36 @@ from Load_balancer_client import load_balancer_client
 from Tunnel import Tunnel
 
 
+# instruction list
+# Client : GET_IP_ADDRESS
+
+
+
+
+
 class VPN_Client:
     def __init__(self):
         self.is_tunnel : bool = False
         self.is_proxy : bool = False
         self.sever_address : str = ""
         self.sever_port : int = 0
-        self.get_server_info : bool = False
+        
 
-    def get_ip_address(self):
+    def get_server_info(self):
         load = load_balancer_client()
         server_info = load.ask()
         if server_info:
             server_ip, server_port = server_info
             self.sever_address = server_ip
             self.sever_port = server_port
-            self.get_server_info = True
         else :
             raise Exception("Failed to get server IP and port from load balancer.")
             
         
 
     def connect_tunnel(self):
-        if not self.get_server_info:
-            self.get_ip_address()
+        if not self.sever_address or not self.sever_port:
+            self.get_server_info()
         # not completed
         with Tunnel() as t:
             t.create("VPNcore",)
