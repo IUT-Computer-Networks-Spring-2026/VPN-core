@@ -24,7 +24,6 @@ class load_balancer_client():
                     break
             except socket.timeout:
                 client_socket.close()
-                print("Client Timeout")
                 continue
 
         return json.loads(Cesar.decode(response).decode('utf-8'))

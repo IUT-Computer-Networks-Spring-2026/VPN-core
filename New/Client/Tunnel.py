@@ -144,9 +144,7 @@ class Tunnel:
 
         cls._wintun, cls._kernel32, cls._iphlpapi = w, k, ip
 
-        version = w.WintunGetRunningDriverVersion()
-        if version:
-            print(f"Wintun driver version {(version >> 16) & 0xFFFF}.{version & 0xFFFF}")
+        w.WintunGetRunningDriverVersion()
         return w
 
     
@@ -218,7 +216,6 @@ class Tunnel:
             try:
                 idx = self._get_if_index()
                 if idx > 0:
-                    print(f"Adapter ready (IfIndex={idx}) after {attempt + 1} attempt(s)")
                     return idx
             except OSError as exc:
                 last = exc
@@ -269,7 +266,6 @@ class Tunnel:
             f"-PrefixLength {self.prefix_length} -AddressFamily IPv4 "
             f"-PolicyStore ActiveStore -ErrorAction Stop | Out-Null"
         )
-        print(f"Assigned {self.adapter_address}/{self.prefix_length} to IfIndex={idx}")
 
     def _set_interface_metric(self):
         self._ps(
@@ -294,7 +290,6 @@ class Tunnel:
                 f"-PolicyStore ActiveStore -ErrorAction Stop | Out-Null"
             )
             self._routes_installed.append(prefix)
-            print(f"Installed redirect route {prefix} via {self.DEFAULT_GATEWAY} (IfIndex={self._if_index})")
 
     def _remove_redirect_routes(self):
         for prefix in list(self._routes_installed) or list(self.HIGH_PRIORITY_PREFIXES):
@@ -305,7 +300,6 @@ class Tunnel:
                 f"if ($r) {{ $r | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }}",
                 False,
             )
-            print(f"Removed redirect route {prefix}")
         self._routes_installed.clear()
 
     def _remove_ip(self) :
@@ -321,7 +315,6 @@ class Tunnel:
 
     def _add_server_bypass(self, dest_ip: str): # exception for routing
         if not self._original_gateway:
-            print(f"No original gateway recorded — cannot add bypass for {dest_ip}")
             return
         self._validate_ip(dest_ip)
         pfx = self._q(f"{dest_ip}/32")
@@ -339,7 +332,6 @@ class Tunnel:
             f"-PolicyStore ActiveStore -ErrorAction Stop | Out-Null"
         )
         self._server_bypass = dest_ip
-        print(f"Added bypass route {dest_ip}/32 via original gateway {hop}")
 
     def _remove_server_bypass(self):
         if not self._server_bypass:
@@ -363,7 +355,6 @@ class Tunnel:
             False,
         )
         if existing:
-            print(f"Loopback {self.LOOPBACK_PREFIX} already excluded (stays on loopback interface)")
             return
         self._ps(
             f"New-NetRoute -DestinationPrefix '{pfx}' -InterfaceIndex 1 "
@@ -371,7 +362,6 @@ class Tunnel:
             f"-PolicyStore ActiveStore -ErrorAction Stop | Out-Null"
         )
         self._loopback_excluded = True
-        print(f"Added loopback exclusion route {self.LOOPBACK_PREFIX} on IfIndex=1")
 
     def _restore_loopback(self):
         if not self._loopback_excluded:
@@ -395,11 +385,9 @@ class Tunnel:
     # request and handle administrator privileges (elevate PowerShell via UAC)
     def _ensure_admin(self):
         if self._is_admin():
-            print("Administrator privileges confirmed")
             return True
 
         # not elevated
-        print("Not elevated — requesting administrator privileges via PowerShell")
         params = " ".join(f'"{arg}"' for arg in sys.argv)
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command",
@@ -430,7 +418,6 @@ class Tunnel:
 
         w = self._load_dlls()
         try:
-            print(f"Creating Wintun adapter name={self.adapter_name!r}")
             self._handle = w.WintunCreateAdapter(
                 self.adapter_name, self.DEFAULT_TUNNEL_TYPE, None
             )
@@ -449,19 +436,14 @@ class Tunnel:
 
             self._assign_ip()
 
-
             self._original_gateway = self._read_default_gateway()
-            if self._original_gateway:
-                print(f"Original default gateway: {self._original_gateway['next_hop']} (IfIndex={self._original_gateway['if_index']})")
 
             self._set_interface_metric()
             self._install_redirect_routes()
             self._exclude_loopback()
 
             self.is_tunnel_active = True
-            print(f"Tunnel active on {self.adapter_name!r} (IfIndex={self._if_index}, {self.adapter_address}/{self.prefix_length})")
         except Exception:
-            print("create() failed — rolling back")
             self._teardown()
             raise
 
@@ -477,7 +459,6 @@ class Tunnel:
         if not packet:
             return False
         if self._is_ipv6(packet):
-            print(f"Dropping IPv6 packet ({len(packet)} bytes) — only IPv4 is supported")
             return False
         if len(packet) > _WINTUN_MAX_IP_PACKET_SIZE:
             raise TunnelError(
@@ -490,7 +471,6 @@ class Tunnel:
         if not buf:
             err = ctypes.get_last_error()
             if err == _ERROR_BUFFER_OVERFLOW:
-                print(f"Send ring full — dropping {len(packet)} byte packet")
                 return False
             if err == _ERROR_HANDLE_EOF:
                 raise TunnelError("Wintun session is terminating (send)")
@@ -534,13 +514,10 @@ class Tunnel:
             return True
         if result == _WAIT_TIMEOUT:
             return False
-        print(f"WaitForSingleObject returned {result}")
         return False
 
     def close(self) :
-        print(f"Closing tunnel {self.adapter_name!r}")
         self._teardown()
-        print("Tunnel closed — routing restored, adapter removed.")
 
     def _teardown(self) -> None:
         self.is_tunnel_active = False
@@ -554,14 +531,14 @@ class Tunnel:
                 try:
                     step()
                 except Exception as exc:  # keep tearing down
-                    print(f"Teardown step {step.__name__} failed: {exc}")
+                    pass
 
         
         if self._session is not None:
             try:
                 self._load_dlls().WintunEndSession(self._session)
             except Exception as exc:
-                print(f"WintunEndSession failed: {exc}")
+                pass
             self._session = None
             self._read_event = None
 
@@ -570,7 +547,7 @@ class Tunnel:
             try:
                 self._load_dlls().WintunCloseAdapter(self._handle)
             except Exception as exc:
-                print(f"WintunCloseAdapter failed: {exc}")
+                pass
             self._handle = None
 
         self._if_index = None

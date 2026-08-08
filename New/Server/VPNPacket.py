@@ -1,8 +1,25 @@
+"""Server-side VPN control/data packet builder and parser.
+
+Wire format (4-byte header, big-endian):
+    byte 0-1 : payload length (uint16)
+    byte 2   : bits 7-4 code, bits 3-1 session id (0-7), bit 0 MTU flag
+    byte 3   : reserved (0x00)
+
+This module is intentionally self-contained (no cross-folder imports) so the
+Server package can be deployed independently of the Client package.
+"""
+
 import json
 import struct
+import hashlib
 from dataclasses import dataclass
 from typing import Optional
 
+
+def hash_password(username: str, password: str) -> str:
+    """SHA-256(username + password) hex digest (username acts as the salt)."""
+    salted = username.encode("utf-8") + password.encode("utf-8")
+    return hashlib.sha256(salted).hexdigest()
 
 
 HEADER_LEN = 4
@@ -23,8 +40,11 @@ CODE_ERROR = 9
 CODE_GET_IP = 10
 CODE_ASSIGN_IP = 11
 CODE_GET_NEW_IP = 12
+CODE_REGISTER_REQUEST = 13
+CODE_REGISTER_SUCCESS = 14
+CODE_ANNOUNCE_IP = 15
 
-MAX_CODE = 12
+MAX_CODE = 15
 
 
 _CODE_NAMES = {
@@ -33,18 +53,20 @@ _CODE_NAMES = {
     CODE_QUOTA_REQUEST: "QUOTA_REQUEST", CODE_QUOTA_RESPONSE: "QUOTA_RESPONSE",
     CODE_DISCONNECT: "DISCONNECT", CODE_STATUS: "STATUS", CODE_ERROR: "ERROR",
     CODE_GET_IP: "GET_IP", CODE_ASSIGN_IP: "ASSIGN_IP", CODE_GET_NEW_IP: "GET_NEW_IP",
+    CODE_REGISTER_REQUEST: "REGISTER_REQUEST", CODE_REGISTER_SUCCESS: "REGISTER_SUCCESS",
+    CODE_ANNOUNCE_IP: "ANNOUNCE_IP",
 }
 
-# allowed to recv
+# Codes the server is allowed to receive (client -> server direction).
 _SERVER_RECEIVABLE = frozenset({
     CODE_DATA, CODE_KEEP_ALIVE, CODE_AUTH_REQUEST, CODE_QUOTA_REQUEST,
-    CODE_DISCONNECT, CODE_STATUS, CODE_ERROR,
-    CODE_GET_IP,
+    CODE_DISCONNECT, CODE_STATUS, CODE_ERROR, CODE_GET_IP, CODE_REGISTER_REQUEST,
+    CODE_ANNOUNCE_IP,
 })
 
 
 class InvalidVPNPacketError(Exception):
-    pass
+    """Raised when a packet is malformed or not receivable in this direction."""
 
 
 @dataclass
@@ -53,9 +75,11 @@ class ParsedPacket:
     session_id: int
     mtu_flag: bool = False
     payload: bytes = b""
-    username: Optional[str] = None          # AUTH_REQUEST
-    password_hash: Optional[str] = None     # AUTH_REQUEST
+    username: Optional[str] = None          # AUTH_REQUEST / REGISTER_REQUEST
+    password_hash: Optional[str] = None     # AUTH_REQUEST / REGISTER_REQUEST
     requested_bytes: Optional[int] = None   # QUOTA_REQUEST
+    error_message: Optional[str] = None     # ERROR
+    ip: Optional[str] = None                # ANNOUNCE_IP
 
     @property
     def code_name(self) -> str:
@@ -63,16 +87,19 @@ class ParsedPacket:
 
 
 class ServerVPNPacket:
-    def build_data(self, session_id: int, payload: bytes, more_fragments: bool = False):
+    """Builds packets the server may send and parses packets it may receive."""
+
+    # -- builders (server -> client) -------------------------------------- #
+    def build_data(self, session_id: int, payload: bytes, more_fragments: bool = False) -> bytes:
         return _build_packet(CODE_DATA, session_id, payload, more_fragments)
 
-    def build_auth_success(self, session_id: int):
+    def build_auth_success(self, session_id: int) -> bytes:
         return _build_packet(CODE_AUTH_SUCCESS, session_id, b"", False)
 
-    def build_auth_failed(self, session_id: int):
+    def build_auth_failed(self, session_id: int) -> bytes:
         return _build_packet(CODE_AUTH_FAILED, session_id, b"", False)
 
-    def build_quota_response(self, session_id: int, added_bytes: int):
+    def build_quota_response(self, session_id: int, added_bytes: int) -> bytes:
         if not 0 <= added_bytes <= 0xFFFFFFFF:
             raise ValueError("added_bytes out of uint32 range")
         return _build_packet(CODE_QUOTA_RESPONSE, session_id, struct.pack("!I", added_bytes), False)
@@ -80,20 +107,25 @@ class ServerVPNPacket:
     def build_disconnect(self, session_id: int) -> bytes:
         return _build_packet(CODE_DISCONNECT, session_id, b"", False)
 
-    def build_status(self, session_id: int, status: bytes = b""):
+    def build_status(self, session_id: int, status: bytes = b"") -> bytes:
         return _build_packet(CODE_STATUS, session_id, status, False)
 
-    def build_error(self, session_id: int) -> bytes:
-        return _build_packet(CODE_ERROR, session_id, b"", False)
+    def build_error(self, session_id: int, message: str = "") -> bytes:
+        payload = (message or "").encode("utf-8")
+        return _build_packet(CODE_ERROR, session_id, payload, False)
 
-    def build_assign_ip(self, session_id: int, ip: str):
+    def build_assign_ip(self, session_id: int, ip: str) -> bytes:
         if not isinstance(ip, str) or not ip:
             raise ValueError("ip must be a non-empty string")
         return _build_packet(CODE_ASSIGN_IP, session_id, ip.encode("utf-8"), False)
 
-    def build_get_new_ip(self, session_id: int):
+    def build_get_new_ip(self, session_id: int) -> bytes:
         return _build_packet(CODE_GET_NEW_IP, session_id, b"", False)
 
+    def build_register_success(self, session_id: int) -> bytes:
+        return _build_packet(CODE_REGISTER_SUCCESS, session_id, b"", False)
+
+    # -- parser (client -> server) ---------------------------------------- #
     def parse(self, data: bytes) -> ParsedPacket:
         code, session_id, mtu_flag, payload = _parse_header_and_payload(data)
 
@@ -104,21 +136,28 @@ class ServerVPNPacket:
 
         pkt = ParsedPacket(code=code, session_id=session_id, mtu_flag=mtu_flag, payload=payload)
 
-        if code == CODE_AUTH_REQUEST:
-            username, password_hash = _decode_auth_request(payload)
-            pkt.username = username
-            pkt.password_hash = password_hash
+        if code in (CODE_AUTH_REQUEST, CODE_REGISTER_REQUEST):
+            pkt.username, pkt.password_hash = _decode_credentials(payload)
         elif code == CODE_QUOTA_REQUEST:
             if len(payload) != 4:
                 raise InvalidVPNPacketError("QUOTA_REQUEST payload must be exactly 4 bytes")
             pkt.requested_bytes = struct.unpack("!I", payload)[0]
-        elif code in (CODE_KEEP_ALIVE, CODE_DISCONNECT, CODE_ERROR, CODE_GET_IP):
+        elif code == CODE_ERROR:
+            pkt.error_message = _decode_text(payload)
+        elif code == CODE_ANNOUNCE_IP:
+            pkt.ip = _decode_text(payload)
+            if not pkt.ip:
+                raise InvalidVPNPacketError("ANNOUNCE_IP payload must contain an IP string")
+        elif code in (CODE_KEEP_ALIVE, CODE_DISCONNECT, CODE_GET_IP):
             if payload:
                 raise InvalidVPNPacketError(f"{_CODE_NAMES[code]} must have no payload")
         return pkt
 
 
-def _build_packet(code: int, session_id: int, payload: bytes, mtu_flag: bool):
+# --------------------------------------------------------------------------- #
+# Shared helpers
+# --------------------------------------------------------------------------- #
+def _build_packet(code: int, session_id: int, payload: bytes, mtu_flag: bool) -> bytes:
     if not 0 <= code <= MAX_CODE:
         raise ValueError(f"code out of range 0-{MAX_CODE}: {code}")
     if not 0 <= session_id <= 7:
@@ -160,16 +199,22 @@ def _parse_header_and_payload(data: bytes):
     return code, session_id, mtu_flag, payload
 
 
-def _decode_auth_request(payload: bytes):
+def _decode_credentials(payload: bytes):
     try:
         obj = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidVPNPacketError(f"AUTH_REQUEST payload is not valid JSON: {exc}") from exc
-
+        raise InvalidVPNPacketError(f"credential payload is not valid JSON: {exc}") from exc
     if not isinstance(obj, dict):
-        raise InvalidVPNPacketError("AUTH_REQUEST JSON must be an object")
+        raise InvalidVPNPacketError("credential JSON must be an object")
     username = obj.get("username")
     password_hash = obj.get("password")
     if not isinstance(username, str) or not isinstance(password_hash, str):
-        raise InvalidVPNPacketError("AUTH_REQUEST must contain string 'username' and 'password'")
+        raise InvalidVPNPacketError("credentials must contain string 'username' and 'password'")
     return username, password_hash
+
+
+def _decode_text(payload: bytes) -> str:
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InvalidVPNPacketError("ERROR payload is not valid UTF-8") from exc

@@ -19,13 +19,11 @@ class load_balancer_server():
         while True:
             client_socket, client_address = listen_socket.accept() 
             client_socket.settimeout(5.0) 
-            print(f"client with {client_address} connected")
             try:
                 data = client_socket.recv(32)
                 if not data:
                     continue
             except socket.timeout:
-                print("Client Timeout")
                 continue
 
             msg = Cesar.decode(data).decode('utf-8') 
@@ -33,9 +31,8 @@ class load_balancer_server():
                 json_string = json.dumps(random.choice(self.server_list)) 
                 client_socket.send(Cesar.encode(json_string.encode('utf-8'))) 
             else : 
-                print(f"wrong message: {msg}")
+                pass
             client_socket.close() 
-            print("connection closed")
 
 
 
@@ -45,7 +42,7 @@ def main():
     try:
         tmp.listen_start()
     except KeyboardInterrupt:
-        print("Server dowun.")
+        pass
 
 
 if __name__ == "__main__":
