@@ -1,24 +1,3 @@
-"""VPNClient: high-level client orchestration.
-
-Ties together the existing project components:
-  - Load_balancer_client.load_balancer_client  -> discover a server
-  - VPNPacket.ClientVPNPacket                  -> build/parse control+data packets
-  - NAT.ClientNAT                              -> source-NAT tunnel traffic
-  - Tunnel.Tunnel                              -> Wintun virtual adapter (Windows)
-  - Crypto.Cesar                               -> encode/decode everything on the wire
-
-Connection flow (see connect()):
-  1. Ask the load balancer for (server_ip, server_port).
-  2. TCP-connect over the physical NIC, authenticate (or register first).
-  3. Send GET_IP and receive ASSIGN_IP -> the private tunnel address.
-  4. Bring up the Wintun tunnel on that address and bypass-route the server IP.
-  5. Re-connect a data socket (auth again), init ClientNAT, and run three worker
-     threads (send / receive / keep-alive).
-  6. GET_NEW_IP or a fatal error triggers a full reconnect, up to 3 attempts.
-
-The `Tunnel` class is Windows-only and needs administrator rights, so it is
-imported lazily and can be replaced through `tunnel_factory` for testing.
-"""
 
 import random
 import socket
@@ -52,38 +31,33 @@ KEEPALIVE_TICK = 180
 MAX_RETRIES = 3
 
 
-# --------------------------------------------------------------------------- #
-# Exceptions
-# --------------------------------------------------------------------------- #
+
 class VPNClientError(Exception):
-    """Base class for all client-side failures."""
+    pass
 
 
 class ConnectionSetupError(VPNClientError):
-    """Raised when the initial handshake with the server fails."""
+    pass
 
 
 class ReconnectExhaustedError(VPNClientError):
-    """Raised when all reconnect attempts have been used up."""
+    pass
 
 
 class ServerError(VPNClientError):
-    """Raised when the server reports an ERROR packet during handshake."""
+    pass
 
 
 class AuthError(VPNClientError):
-    """Raised when authentication or registration is rejected by the server."""
+    pass
 
 
-# --------------------------------------------------------------------------- #
-# Wire framing helper: every frame is Cesar-encoded on the socket.
-# --------------------------------------------------------------------------- #
+
 class _Stopped(Exception):
-    """Internal signal: a worker was asked to stop while blocked on I/O."""
-
+    pass
 
 class _FrameReader:
-    """Buffers a TCP stream and yields whole (decrypted) VPN packets."""
+
 
     def __init__(self, sock: socket.socket):
         self._sock = sock
@@ -134,11 +108,9 @@ def _fragment(payload: bytes) -> List[Tuple[bytes, bool]]:
     return chunks
 
 
-# --------------------------------------------------------------------------- #
-# VPNClient
-# --------------------------------------------------------------------------- #
+
 class VPNClient:
-    """Orchestrates a full client VPN session with authentication + reconnect."""
+    
 
     def __init__(
         self,
@@ -175,11 +147,9 @@ class VPNClient:
         self._reconnect_requested = threading.Event()
         self._retries_left = MAX_RETRIES
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
+
     def register(self) -> None:
-        """Register this username/password with the server (one-shot)."""
+        
         self.server_ip, self.server_port = self._lb_ask()
         self.session_id = random.randint(0, 7)
         temp = socket.create_connection((self.server_ip, self.server_port), timeout=10)
@@ -201,19 +171,22 @@ class VPNClient:
             temp.close()
 
     def connect(self) -> None:
-        """Discover a server, authenticate, establish the tunnel, start workers."""
-        self.server_ip, self.server_port = self._lb_ask()
+        # self.server_ip, self.server_port = self._lb_ask()
+        print("\n[DEBUG] 1. connect() called.")
+        # self.server_ip, self.server_port = self._lb_ask()
+        self.server_ip = "172.20.41.161"
+        self.server_port = 9000
+        print(f"[DEBUG] 2. Target server set to: {self.server_ip}:{self.server_port}")
+        
         self._retries_left = MAX_RETRIES
         self._establish()
 
     def request_quota(self, requested_bytes: int) -> None:
-        """Ask the server to add quota (billing hook lives server-side)."""
         if self._sock is None:
             raise VPNClientError("Not connected")
         _send_frame(self._sock, self._packet.build_quota_request(self.session_id, requested_bytes))
 
     def disconnect(self) -> None:
-        """Gracefully tear down: stop threads, socket and tunnel."""
         if self._stop_event.is_set() and not self._threads:
             return
         self._stop_event.set()
@@ -235,38 +208,50 @@ class VPNClient:
     def is_connected(self) -> bool:
         return bool(self._threads) and not self._stop_event.is_set()
 
-    # ------------------------------------------------------------------ #
-    # Connection establishment (with retry)
-    # ------------------------------------------------------------------ #
+
     def _establish(self) -> None:
+        print("[DEBUG] 3. _establish() started.")
         last_error: Optional[Exception] = None
         while self._retries_left > 0:
+            print(f"\n[DEBUG] 4. Connection attempt. Retries left: {self._retries_left}")
             self._retries_left -= 1
             try:
+                print("[DEBUG] 5. Calling _handshake_get_ip()...")
                 assigned_ip = self._handshake_get_ip()
+                print(f"[DEBUG] 13. _handshake_get_ip() success. Assigned IP: {assigned_ip}")
             except _NeedNewIP:
+                print("[DEBUG] Catch: _NeedNewIP exception. Retrying...")
                 continue
-            except AuthError:
-                raise  # auth failures are terminal, no point retrying
+            except AuthError as exc:
+                print(f"[DEBUG] Catch: AuthError: {exc}")
+                raise  
             except (OSError, InvalidVPNPacketError, ServerError) as exc:
+                print(f"[DEBUG] Catch: Transient error during handshake: {exc}")
                 last_error = exc
                 continue
-
+            
+            print("[DEBUG] 14. Proceeding to bring up tunnel and open data connection...")
             try:
                 self._bring_up_tunnel(assigned_ip)
+                print("[DEBUG] 15. Tunnel brought up successfully.")
                 self._open_data_connection()
+                print("[DEBUG] 16. Data connection opened.")
                 self._reset_state()
                 self._start_threads()
+                print("[DEBUG] 17. _establish() completed successfully. Client is fully connected.")
                 return
-            except AuthError:
+            except AuthError as exc:
+                print(f"[DEBUG] Catch: AuthError during data connection: {exc}")
                 self._close_socket()
                 self._close_tunnel()
                 raise
             except Exception as exc:
+                print(f"[DEBUG] Catch: Exception during tunnel/data setup: {exc}")
                 last_error = exc
                 self._close_socket()
                 self._close_tunnel()
 
+        print("[DEBUG] Exhausted all retries.")
         if last_error is not None:
             raise ReconnectExhaustedError(
                 f"Could not establish VPN session after {MAX_RETRIES} attempts: {last_error}"
@@ -276,46 +261,72 @@ class VPNClient:
         )
 
     def _authenticate(self, sock: socket.socket, reader: _FrameReader) -> None:
-        """Send AUTH_REQUEST and require AUTH_SUCCESS. Raises AuthError otherwise."""
+        print("[DEBUG] 9. _authenticate() started. Sending AUTH_REQUEST...")
         _send_frame(sock, self._packet.build_auth_request(
             self.session_id, self.username, self.password))
+        
+        print("[DEBUG] 10. AUTH_REQUEST sent. Waiting for response...")
         packet = reader.read_packet(lambda: False)
+        
         if packet is None:
+            print("[DEBUG] Auth Error: Server closed connection during authentication (packet is None).")
             raise ConnectionSetupError("Server closed connection during authentication")
+            
         parsed = self._packet.parse(packet)
+        print(f"[DEBUG] Received response for AUTH_REQUEST. Code: {parsed.code_name}")
+        
         if parsed.code == CODE_AUTH_SUCCESS:
+            print("[DEBUG] Authentication successful!")
             return
         if parsed.code == CODE_AUTH_FAILED:
+            print("[DEBUG] Auth Error: Authentication failed (CODE_AUTH_FAILED).")
             raise AuthError("Authentication failed")
         if parsed.code == CODE_ERROR:
+            print(f"[DEBUG] Auth Error: Authentication rejected with ERROR: {parsed.error_message}")
             raise AuthError(parsed.error_message or "Authentication rejected")
+            
+        print(f"[DEBUG] Unexpected auth response: {parsed.code_name}")
         raise ConnectionSetupError(f"Unexpected auth response {parsed.code_name}")
-
+    
     def _handshake_get_ip(self) -> str:
-        """Auth over a temp socket, send GET_IP, return the assigned IP string."""
+        print("[DEBUG] 6. _handshake_get_ip() started.")
         self.session_id = random.randint(0, 7)
+        print(f"[DEBUG] 7. Generated session ID: {self.session_id}, creating handshake socket...")
         temp = socket.create_connection((self.server_ip, self.server_port), timeout=10)
         try:
             temp.settimeout(10)
             reader = _FrameReader(temp)
+            print("[DEBUG] 8. Socket created. Calling _authenticate()...")
             self._authenticate(temp, reader)
 
+            print("[DEBUG] 11. Sending GET_IP request...")
             _send_frame(temp, self._packet.build_get_ip(self.session_id))
+            print("[DEBUG] 12. GET_IP sent. Waiting for response...")
             packet = reader.read_packet(lambda: False)
+            
             if packet is None:
+                print("[DEBUG] Handshake Error: Server closed connection waiting for GET_IP response.")
                 raise ConnectionSetupError("Server closed connection during handshake")
+            
             parsed = self._packet.parse(packet)
+            print(f"[DEBUG] Received response for GET_IP. Code: {parsed.code_name}")
 
             if parsed.code == CODE_ASSIGN_IP:
                 if not parsed.ip:
+                    print("[DEBUG] Handshake Error: ASSIGN_IP missing IP address.")
                     raise ConnectionSetupError("ASSIGN_IP without an address")
                 return parsed.ip
             if parsed.code == CODE_GET_NEW_IP:
+                print("[DEBUG] Server requested CODE_GET_NEW_IP.")
                 raise _NeedNewIP()
             if parsed.code == CODE_ERROR:
+                print(f"[DEBUG] Handshake ERROR from server: {parsed.error_message}")
                 raise ServerError(parsed.error_message or "Server returned ERROR during handshake")
+            
+            print(f"[DEBUG] Unexpected handshake response: {parsed.code_name}")
             raise ConnectionSetupError(f"Unexpected handshake response {parsed.code_name}")
         finally:
+            print("[DEBUG] Closing handshake socket.")
             temp.close()
 
     def _bring_up_tunnel(self, assigned_ip: str) -> None:
@@ -332,12 +343,9 @@ class VPNClient:
         self._sock.settimeout(SOCKET_TIMEOUT)
         self._local_port = self._sock.getsockname()[1]
         self._reader = _FrameReader(self._sock)
-        # Authenticate the data socket too (server requires creds first).
+
         self._authenticate(self._sock, self._reader)
         self._nat = ClientNAT(self.assigned_ip, ignored_ports=[self._local_port])
-        # ANNOUNCE_IP must be the FIRST packet on the data socket: it tells the
-        # server which assigned 10.0.0.x this connection belongs to (the TCP
-        # source IP is the physical NIC because the server route is bypassed).
         _send_frame(self._sock, self._packet.build_announce_ip(self.session_id, self.assigned_ip))
 
     def _reset_state(self) -> None:
@@ -347,9 +355,7 @@ class VPNClient:
         with self._lock:
             self._last_activity = time.time()
 
-    # ------------------------------------------------------------------ #
-    # Threads
-    # ------------------------------------------------------------------ #
+
     def _start_threads(self) -> None:
         self._threads = [
             threading.Thread(target=self._send_loop, name="vpn-send", daemon=True),
@@ -460,9 +466,7 @@ class VPNClient:
                 except OSError:
                     break
 
-    # ------------------------------------------------------------------ #
-    # Reconnect
-    # ------------------------------------------------------------------ #
+    
     def _request_reconnect(self) -> None:
         if self._reconnect_requested.is_set():
             return
@@ -480,9 +484,7 @@ class VPNClient:
         except (ReconnectExhaustedError, AuthError):
             pass
 
-    # ------------------------------------------------------------------ #
-    # Cleanup helpers
-    # ------------------------------------------------------------------ #
+   
     def _join_threads(self, exclude_current: bool = False) -> None:
         current = threading.current_thread()
         for t in self._threads:
@@ -512,14 +514,11 @@ class VPNClient:
 
 
 class _NeedNewIP(Exception):
-    """Internal: server asked for a fresh IP during the handshake."""
+    pass
 
 
-# --------------------------------------------------------------------------- #
-# Default factories (kept out of __init__ so they can be swapped in tests)
-# --------------------------------------------------------------------------- #
 def _default_tunnel_factory():
-    from Tunnel import Tunnel  # lazy: Windows-only, needs wintun.dll + admin
+    from Tunnel import Tunnel  
     return Tunnel()
 
 
@@ -529,11 +528,14 @@ def _default_lb_ask() -> Tuple[str, int]:
 
 
 if __name__ == "__main__":
+    print("Salam ahvalin")
     import sys
     if len(sys.argv) < 3:
         sys.exit("usage: VPNClient.py <username> <password>")
     client = VPNClient(sys.argv[1], sys.argv[2])
+    print(f"gala boo user : {sys.argv[1]} boo ramzidan : {sys.argv[2]}")
     try:
+        print("isiram vasl olom")
         client.connect()
         client.wait()
     except KeyboardInterrupt:

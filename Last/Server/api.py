@@ -1,19 +1,3 @@
-"""HTTP API exposed by the VPN Server process (the only DB owner).
-
-This Flask app is created with a live ``VPNServer`` instance and serves both:
-
-  * the Admin API  (JWT admin token; users / firewall / logs)
-  * the Portal API  (JWT user token; register / login / status / quota)
-
-Every data operation is delegated to ``VPNServer`` methods, which are the only
-code allowed to touch SQLite. Neither the Admin Panel nor the Client Portal
-frontends import ``Database`` or open ``vpn.db`` — they are pure HTTP clients of
-this API (or of a co-located instance of it).
-
-Create the app with :func:`create_api_app(server)` and run it on the desired
-port, or mount the packaged frontends via ``admin_panel``/``client_portal``.
-"""
-
 import os
 from typing import Optional
 
@@ -33,9 +17,6 @@ def create_api_app(server, name: str = "vpn_api") -> Flask:
     def srv():
         return app.config["SERVER"]
 
-    # ------------------------------------------------------------------ #
-    # Auth (both roles)
-    # ------------------------------------------------------------------ #
     @app.post("/api/admin/login")
     def admin_login():
         data = request.get_json(silent=True) or {}
@@ -77,9 +58,7 @@ def create_api_app(server, name: str = "vpn_api") -> Flask:
         resp.delete_cookie("token")
         return resp
 
-    # ------------------------------------------------------------------ #
-    # Portal (user token)
-    # ------------------------------------------------------------------ #
+
     @app.get("/api/portal/status")
     @jwt_required(admin_only=False)
     def portal_status():
@@ -100,9 +79,7 @@ def create_api_app(server, name: str = "vpn_api") -> Flask:
         result["remaining_quota_h"] = human_bytes(result.get("remaining_quota"))
         return jsonify(result)
 
-    # ------------------------------------------------------------------ #
-    # Admin (admin token)
-    # ------------------------------------------------------------------ #
+
     @app.get("/api/admin/users")
     @jwt_required(admin_only=True)
     def admin_users():

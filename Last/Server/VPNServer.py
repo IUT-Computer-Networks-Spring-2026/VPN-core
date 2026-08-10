@@ -43,7 +43,7 @@ SOCKET_TIMEOUT = 1.0
 SERVER_TUNNEL_IP = "10.0.0.1"
 SUBNET = "10.0.0.0/24"
 
-RATE_LIMIT_BPS = 1048576
+RATE_LIMIT_BPS = 10240
 GRACE_WINDOW_SECONDS = 120
 ANNOUNCE_TIMEOUT_SECONDS = 30
 
@@ -52,11 +52,8 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin"
 
 
-# --------------------------------------------------------------------------- #
-# Administrator privileges
-# --------------------------------------------------------------------------- #
+
 def _is_admin() -> bool:
-    """Return True if the current process has admin (Windows) / root (POSIX)."""
     try:
         import ctypes
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
@@ -119,9 +116,7 @@ class IPPoolExhaustedError(VPNServerError):
     """No free address left in the 10.0.0.0/24 pool."""
 
 
-# --------------------------------------------------------------------------- #
-# Rate limiting
-# --------------------------------------------------------------------------- #
+
 class TokenBucket:
     """Simple thread-safe token bucket. `consume` blocks until tokens exist."""
 
@@ -211,9 +206,6 @@ def _fragment(payload: bytes) -> List[Tuple[bytes, bool]]:
     return chunks
 
 
-# --------------------------------------------------------------------------- #
-# Internet gateway abstraction
-# --------------------------------------------------------------------------- #
 class InternetGateway:
     """Sends translated IP packets out and delivers replies back to `receiver`."""
 
@@ -240,16 +232,46 @@ class RawSocketGateway(InternetGateway):
 
     def start(self, receiver: Callable[[bytes], None]) -> None:
         self._receiver = receiver
-        self._send_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-        self._send_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
 
-        self._recv_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
+        if not self._exit_ip or self._exit_ip == "0.0.0.0":
+            self._exit_ip = _get_default_local_ip()
+
+        print(f"[RawSocketGateway] Binding receive socket to {self._exit_ip}")
+
+        self._send_sock = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_RAW,
+            socket.IPPROTO_RAW
+        )
+
+        self._send_sock.setsockopt(
+            socket.IPPROTO_IP,
+            socket.IP_HDRINCL,
+            1
+        )
+
+        self._recv_sock = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_RAW,
+            socket.IPPROTO_IP
+        )
+
         self._recv_sock.bind((self._exit_ip, 0))
-        if hasattr(socket, "SIO_RCVALL"):  # Windows
-            self._recv_sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)
+
+        if hasattr(socket, "SIO_RCVALL"):
+            self._recv_sock.ioctl(
+                socket.SIO_RCVALL,
+                socket.RCVALL_ON
+            )
+
         self._recv_sock.settimeout(SOCKET_TIMEOUT)
 
-        self._thread = threading.Thread(target=self._recv_loop, name="gw-recv", daemon=True)
+        self._thread = threading.Thread(
+            target=self._recv_loop,
+            name="gw-recv",
+            daemon=True
+        )
+
         self._thread.start()
 
     def send(self, ip_packet: bytes) -> None:
@@ -289,9 +311,7 @@ class RawSocketGateway(InternetGateway):
             self._thread.join(timeout=3)
 
 
-# --------------------------------------------------------------------------- #
-# Per-client handler
-# --------------------------------------------------------------------------- #
+
 class ClientHandler:
     """Owns one client TCP connection: auth, assignment or data session."""
 
@@ -432,7 +452,8 @@ class ClientHandler:
         self._try_send(self._packet.build_auth_success(parsed.session_id))
         return STATUS_ACTIVE
 
-    # -- quota-exhausted grace window ------------------------------------- #
+    
+
     def _grace_window(self, session_id: int) -> None:
         self.session_id = session_id
         deadline = time.monotonic() + GRACE_WINDOW_SECONDS
@@ -444,16 +465,18 @@ class ClientHandler:
                 parsed = self._packet.parse(packet)
             except InvalidVPNPacketError:
                 continue
+                
             if parsed.code == CODE_DISCONNECT:
                 return
             if parsed.code == CODE_QUOTA_REQUEST:
                 added = self._server.grant_quota(self.username, parsed.requested_bytes or 0)
                 self._try_send(self._packet.build_quota_response(session_id, added))
                 if added > 0:
-                    # Quota restored; the client must reconnect for a real session.
                     return
-            # DATA and everything else is dropped during the grace window.
-        # Timed out without a successful top-up -> force disconnect.
+            
+            if parsed.code == CODE_GET_IP:
+                self._try_send(self._packet.build_error(session_id, "Quota exhausted. Cannot assign IP."))
+                return
 
     # -- assignment phase -------------------------------------------------- #
     def _do_assignment(self, session_id: int) -> None:
@@ -685,6 +708,25 @@ class ClientHandler:
         except OSError:
             pass
 
+def _get_default_local_ip() :
+    s = None
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+
+        if ip and ip != "0.0.0.0":
+            return ip
+
+    except OSError:
+        pass
+
+    finally:
+        if s is not None:
+            s.close()
+
+    return "127.0.0.1"  
 
 # --------------------------------------------------------------------------- #
 # VPNServer
@@ -701,11 +743,15 @@ class VPNServer:
         db_path: str = "vpn.db",
         quota_grant_policy: Optional[Callable[[str, int], int]] = None,
     ):
+
         self.listen_host = listen_host
         self.listen_port = listen_port
-        self.exit_ip = exit_ip
-        self.gateway = gateway or RawSocketGateway(exit_ip)
 
+        if not exit_ip or exit_ip == "0.0.0.0":
+            exit_ip = _get_default_local_ip()
+
+        self.exit_ip = exit_ip
+        self.gateway = gateway or RawSocketGateway(self.exit_ip)
         # Billing hook: given (username, requested_bytes) return bytes actually
         # granted. Default grants the request; a real deployment plugs payment
         # verification in here. This is the single place quota is created.
@@ -732,6 +778,8 @@ class VPNServer:
         self._stop = threading.Event()
         self._listen_sock: Optional[socket.socket] = None
         self._handlers: List[ClientHandler] = []
+
+    
 
     # -- IP pool ----------------------------------------------------------- #
     def assign_ip(self) -> str:
@@ -892,10 +940,14 @@ class VPNServer:
         return self.db.unban_user(username)
 
     def kick(self, username: str) -> int:
-        """Force-disconnect all live sessions for a user. Returns count kicked."""
         with self._lock:
             handlers = list(self._by_username.get(username, ()))
         for h in handlers:
+            try:
+                disconnect_pkt = h._packet.build_disconnect(h.session_id)
+                h._try_send(disconnect_pkt)
+            except Exception:
+                pass
             h.stop()
         return len(handlers)
 

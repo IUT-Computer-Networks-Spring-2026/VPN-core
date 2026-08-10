@@ -7,7 +7,8 @@ from Packet import IPPacket
 class ServerNAT:
     MAX_L4_PER_CLIENT = 200       
     MAX_ICMP_PER_CLIENT = 10      
-    _MIN_PORT = 1                 
+    _MIN_PORT = 50000                 
+    _MAX_PORT = 60000                
     _PORT_SPACE = 1 << 16         
     _ID_SPACE = 1 << 16           
 
@@ -75,6 +76,8 @@ class ServerNAT:
             table.move_to_end(flow) # for LRU
 
         pkt.set_source((self._exit_ip, nat_port))
+        pkt._buf[6] = pkt._buf[6] & 0xBF 
+        pkt._refresh_checksums()
         return pkt.to_bytes()
 
     def translate_in(self, packet: bytes):
@@ -153,11 +156,18 @@ class ServerNAT:
         self._icmp_rev.pop(nat_id, None)
 
     def _allocate_port(self, protocol: int) -> int:
-        port = random.randrange(self._MIN_PORT, self._PORT_SPACE)
-        for _ in range(self._PORT_SPACE):
-            if port >= self._MIN_PORT and port not in self._ignored_ports and (protocol, port) not in self._l4_rev:
+        port = random.randrange(self._MIN_PORT, self._MAX_PORT)
+        total_ports = self._MAX_PORT - self._MIN_PORT
+        
+        for _ in range(total_ports):
+            if port not in self._ignored_ports and (protocol, port) not in self._l4_rev:
                 return port
-            port = (port + 1) % self._PORT_SPACE
+            
+            port += 1
+            
+            if port >= self._MAX_PORT:
+                port = self._MIN_PORT
+                
         raise RuntimeError("NAT port space exhausted")
 
     def _allocate_icmp_id(self) -> int:

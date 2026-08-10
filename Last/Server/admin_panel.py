@@ -8,7 +8,7 @@ Run the Server API first (it is started by the VPN Server process, see
 run_server.py), then:
 
     cd Server
-    set VPN_API_URL=http://127.0.0.1:8090      # where the Server API listens
+    set VPN_API_URL=http://127.0.0.1:9000      # where the Server API listens
     python admin_panel.py                        # http://127.0.0.1:8080
 
 Login: admin / admin  (validated by the Server, not here).
@@ -20,7 +20,7 @@ from flask import Flask, request, render_template_string, Response
 
 from proxy import proxy_request
 
-API_URL = os.environ.get("VPN_API_URL", "http://127.0.0.1:8090")
+API_URL = os.environ.get("VPN_API_URL", "http://127.0.0.1:9001")
 
 app = Flask(__name__)
 

@@ -154,10 +154,8 @@ class ServerVPNPacket:
         return pkt
 
 
-# --------------------------------------------------------------------------- #
-# Shared helpers
-# --------------------------------------------------------------------------- #
-def _build_packet(code: int, session_id: int, payload: bytes, mtu_flag: bool) -> bytes:
+
+def _build_packet(code: int, session_id: int, payload: bytes, mtu_flag: bool) :
     if not 0 <= code <= MAX_CODE:
         raise ValueError(f"code out of range 0-{MAX_CODE}: {code}")
     if not 0 <= session_id <= 7:

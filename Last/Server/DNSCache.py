@@ -1,12 +1,3 @@
-"""Minimal DNS sniffer + reverse cache (ip -> domain).
-
-The server inspects DNS traffic (UDP/TCP port 53) that flows through the tunnel
-and records a mapping from answered IP addresses back to the queried domain
-name. `resolve_domain(ip)` then returns the most recent domain seen for that IP.
-
-Only enough of RFC 1035 is parsed to read the question name and A/AAAA answer
-records. Anything malformed is ignored silently (best-effort sniffer).
-"""
 
 import struct
 import threading
@@ -42,7 +33,7 @@ class DNSCache:
             return
         self._ingest(dns_payload)
 
-    # -- internal --------------------------------------------------------- #
+    
     def _ingest(self, dns: bytes) -> None:
         parsed = _parse_dns_response(dns)
         if not parsed:
@@ -52,14 +43,12 @@ class DNSCache:
             return
         with self._lock:
             if len(self._map) >= self._max:
-                self._map.clear()  # simple bulk expiry
+                self._map.clear() 
             for ip in ips:
                 self._map[ip] = domain
 
 
-# --------------------------------------------------------------------------- #
-# IP / L4 extraction
-# --------------------------------------------------------------------------- #
+
 def _extract_dns_payload(ip_packet: bytes) -> Optional[bytes]:
     if ip_packet is None or len(ip_packet) < 20:
         return None
@@ -70,7 +59,7 @@ def _extract_dns_payload(ip_packet: bytes) -> Optional[bytes]:
         return None
     proto = ip_packet[9]
 
-    if proto == 17:  # UDP
+    if proto == 17: 
         if len(ip_packet) < ihl + 8:
             return None
         src_port, dst_port = struct.unpack_from("!HH", ip_packet, ihl)
@@ -85,16 +74,14 @@ def _extract_dns_payload(ip_packet: bytes) -> Optional[bytes]:
             return None
         data_offset = (ip_packet[ihl + 12] >> 4) * 4
         payload = bytes(ip_packet[ihl + data_offset:])
-        # TCP DNS is length-prefixed with a 2-byte length.
+        
         if len(payload) < 2:
             return None
         return payload[2:]
     return None
 
 
-# --------------------------------------------------------------------------- #
-# DNS message parsing (best-effort)
-# --------------------------------------------------------------------------- #
+
 def _parse_name(data: bytes, offset: int) -> Tuple[str, int]:
     """Parse a (possibly compressed) DNS name. Returns (name, next_offset)."""
     labels: List[str] = []
@@ -106,14 +93,14 @@ def _parse_name(data: bytes, offset: int) -> Tuple[str, int]:
             break
         length = data[offset]
         steps += 1
-        if steps > 128:  # guard against loops
+        if steps > 128:  
             break
         if length == 0:
             offset += 1
             if not jumped:
                 next_offset = offset
             break
-        if (length & 0xC0) == 0xC0:  # pointer
+        if (length & 0xC0) == 0xC0:  
             if offset + 1 >= len(data):
                 break
             pointer = ((length & 0x3F) << 8) | data[offset + 1]
@@ -138,12 +125,12 @@ def _parse_dns_response(data: bytes) -> Optional[Tuple[str, List[str]]]:
         return None
     offset = 12
 
-    # Question section: read first question name (the queried domain).
+    
     domain, offset = _parse_name(data, offset)
     if offset + 4 > len(data):
         return None
-    offset += 4  # QTYPE + QCLASS
-    # Skip any remaining questions.
+    offset += 4  
+
     for _ in range(qd - 1):
         _n, offset = _parse_name(data, offset)
         offset += 4

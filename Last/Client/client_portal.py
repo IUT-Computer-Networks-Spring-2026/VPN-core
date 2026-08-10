@@ -32,7 +32,7 @@ if os.path.isdir(_SERVER_DIR):
 
 from proxy import proxy_request  # noqa: E402
 
-API_URL = os.environ.get("VPN_API_URL", "http://127.0.0.1:8090")
+API_URL = os.environ.get("VPN_API_URL", "http://10.165.145.221:9001")
 
 app = Flask(__name__)
 

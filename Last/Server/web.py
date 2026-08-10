@@ -1,13 +1,3 @@
-"""Shared web helpers for the Admin Panel and Client Portal.
-
-Provides a minimal single-token JWT scheme (no refresh token):
-  * normal login  -> 24 hours
-  * remember me   -> 30 days
-  * payload always contains: username, is_admin, exp
-
-The same secret is used by both panels; override it via the VPN_JWT_SECRET
-environment variable in a real deployment.
-"""
 
 import datetime as _dt
 import functools
@@ -38,7 +28,6 @@ def issue_token(username: str, is_admin: bool, remember: bool = False) -> str:
 
 
 def decode_token(token: str) -> Optional[Dict]:
-    """Return the decoded payload, or None if invalid/expired."""
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
